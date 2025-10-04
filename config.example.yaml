@@ -1,0 +1,26 @@
+# Copy this file to config.yaml and fill in real values.
+# Do NOT commit real credentials. Keep the example in VCS.
+
+atlan:
+  base_url: "https://your-tenant.atlan.com"   # e.g., https://example.atlan.com
+  # Use either an API key (recommended) or other credentials if your setup requires.
+  api_key: "YOUR_ATLAN_API_TOKEN"
+
+defaults:
+  # Optional: When provided, the tool will try to resolve these qualified names
+  # and skip interactive selection for that role if successful.
+  inputs:
+    # - "<qualified_name_of_input_asset>"
+  outputs:
+    # - "<qualified_name_of_output_asset>"
+
+  # Optional process metadata. If auto_confirm is true, these will be used
+  # without prompting. If false or omitted, they act as defaults and you can override interactively.
+  process_id: "etl_job_123"      # optional
+  sql: "SELECT 1"                # optional
+  source_url: "https://example"  # optional
+  auto_confirm: false             # set true to skip all prompts
+  # Force the Process connection if needed (otherwise inferred from assets)
+  process_connection_qualified_name: "default/snowflake/12345"
+
+
