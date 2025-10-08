@@ -130,12 +130,99 @@ Notes:
 `run.sh` wraps venv creation and dependency installation, then runs the script with a provided config:
 
 ```bash
-./run.sh -c config.yaml
+./run.sh -c config.yaml -m lineage
 ```
 
 Flags:
 - `-c, --config`: path to YAML config (required)
+- `-m, --module`: which module to run: `lineage` (default) or `connection`
 - `--recreate-venv`: force recreation of the local `.venv`
+
+### Sub-project: Custom Connection & Assets Creator
+
+Create a new custom connection in Atlan (optionally with a Database, Schema, and Tables) using `pyatlan`.
+
+#### Usage
+```bash
+# Create a connection using settings under custom_connection in config.yaml
+./run.sh -c config.yaml -m connection
+
+# Or run directly
+python create_custom_connection.py --config config.yaml
+```
+
+#### Configuration
+Add a `custom_connection` section to your `config.yaml` (see `config.example.yaml` for a fuller example):
+
+```yaml
+custom_connection:
+  name: "my-custom-conn"
+  connector:
+    use: "CUSTOM"           # KNOWN or CUSTOM
+    known_type: "API"       # used when KNOWN (e.g., SNOWFLAKE, BIGQUERY, API)
+    custom:
+      name: "MY_CUSTOM"
+      value: "my-custom"
+      category: "API"
+  admin_roles:
+    - "$admin"
+  create_assets:
+    enabled: true
+    database: "EXAMPLE_DB"
+    schema: "PUBLIC"
+    tables:
+      - name: "SAMPLE_TABLE"
+        description: "Created by automation"
+```
+
+Notes:
+- If `connector.use: KNOWN`, the `known_type` should match a value from `AtlanConnectorType` (e.g., `SNOWFLAKE`, `BIGQUERY`, `API`).
+- If `connector.use: CUSTOM`, the script attempts to register the custom connector via `AtlanConnectorType.CREATE_CUSTOM`. If unsupported in your SDK version, it falls back to `API`.
+- `admin_roles` are resolved by name (e.g., `$admin`) to GUIDs.
+
+### Sub-project: Relational Assets Creator
+
+Create Database / Schema / Tables under an existing connection.
+
+```bash
+./run.sh -c config.yaml -m relational
+
+# Or run directly
+python create_relational_assets.py --config config.yaml
+```
+
+Config: see section `relational_assets` in `config.example.yaml`.
+
+### Sub-project: Object Store Assets Creator
+
+Create object store bucket and object assets under an existing S3-compatible connection (S3, ECS, MinIO, Wasabi, etc.).
+
+```bash
+./run.sh -c config.yaml -m object_store
+
+# Or run directly
+python create_object_store_assets.py --config config.yaml
+```
+
+Config: see section `object_store_assets` in `config.example.yaml`.
+
+Notes:
+- Only S3-compatible providers are supported. Set provider to `s3`. The script validates the connection is S3-compatible (accepts ECS/MinIO/etc.).
+- Set `object_store_assets.connection_qualified_name` to the correct connection’s qualified name. You can look it up via the lineage tool or Atlan UI.
+
+### Sub-project: BI Assets Creator
+
+Create Tableau projects / workbooks / dashboards under an existing connection.
+
+```bash
+./run.sh -c config.yaml -m bi
+
+# Or run directly
+python create_bi_assets.py --config config.yaml
+```
+
+Config: see section `bi_assets` in `config.example.yaml`.
+
 
 ### License
 Apache License 2.0. See `LICENSE`.

@@ -1,11 +1,18 @@
 # Copy this file to config.yaml and fill in real values.
 # Do NOT commit real credentials. Keep the example in VCS.
 
+# ===== Global settings (required by all modules) =====
+# These credentials are used by any script you run from this repository.
+# Keep them at the top-level so all modules can access them.
 atlan:
   base_url: "https://your-tenant.atlan.com"   # e.g., https://example.atlan.com
   # Use either an API key (recommended) or other credentials if your setup requires.
   api_key: "YOUR_ATLAN_API_TOKEN"
 
+# ===== Module: Interactive Lineage Creator (optional) =====
+# This entire section is ONLY used when running the lineage module
+# (via: ./run.sh -c config.yaml -m lineage or python create_lineage_interactive.py).
+# If you only want to use the connection/assets module, you can delete or ignore this section.
 defaults:
   # Optional: When provided, the tool will try to resolve these qualified names
   # and skip interactive selection for that role if successful.
@@ -23,4 +30,78 @@ defaults:
   # Force the Process connection if needed (otherwise inferred from assets)
   process_connection_qualified_name: "default/snowflake/12345"
 
+
+# ===== Module: Custom Connection & Assets Creator (optional) =====
+# This section is ONLY used when running the connection module
+# (via: ./run.sh -c config.yaml -m connection or python create_custom_connection.py).
+# If you only want to use the lineage module, you can delete or ignore this section.
+custom_connection:
+  name: "my-custom-conn"
+  connector:
+    use: "CUSTOM"           # KNOWN or CUSTOM
+    known_type: "API"       # used when use == KNOWN (e.g., SNOWFLAKE, API, BIGQUERY)
+    custom:
+      name: "MY_CUSTOM"     # exported enum-like name
+      value: "my-custom"    # internal value
+      category: "API"       # API, STORAGE, DATABASE, BI, ORCHESTRATION, ML, OTHER
+  admin_roles:
+    - "$admin"
+  create_assets:
+    enabled: true
+    database: "EXAMPLE_DB"
+    schema: "PUBLIC"
+    tables:
+      - name: "SAMPLE_TABLE"
+        description: "Created by automation"
+
+
+# ===== Module: Relational Assets Creator (optional) =====
+# Create Database / Schema / Tables under an existing connection.
+relational_assets:
+  enabled: false
+  connection_qualified_name: "default/snowflake/12345"
+  # connection_name: "Snowflake-Prod"   # used if qualified name not provided
+  database: "EXAMPLE_DB"
+  schemas:
+    - name: "PUBLIC"
+      tables:
+        - name: "SAMPLE_TABLE"
+          description: "Created by automation"
+
+
+# ===== Module: Object Store Assets Creator (optional) =====
+# Create S3 bucket and object assets under an existing connection.
+object_store_assets:
+  enabled: false
+  connection_qualified_name: "default/s3/12345"
+  # connection_name: "S3-Prod"
+  provider: "s3"   # Only S3-compatible providers (S3, ECS, MinIO, Wasabi, etc.)
+  buckets:
+    - name: "my-bucket"
+      region: "us-east-1"
+      # Optional explicit bucket ARN (recommended for strict SDKs)
+      aws_arn: "arn:aws:s3:::my-bucket"
+      objects:
+        - key: "path/to/file.csv"
+          name: "file.csv"
+          # Optional explicit object ARN (recommended for strict SDKs)
+          aws_arn: "arn:aws:s3:::my-bucket/path/to/file.csv"
+  # If your custom connector label isn't recognized as S3-compatible, set this to true.
+  assume_s3_compatible: true
+
+
+# ===== Module: BI Assets Creator (optional) =====
+# Create Tableau projects / workbooks / dashboards under an existing connection.
+bi_assets:
+  enabled: false
+  connection_qualified_name: "default/tableau/12345"
+  # connection_name: "Tableau-Prod"
+  provider: "tableau"
+  tableau:
+    projects:
+      - name: "Sales Analytics"
+        workbooks:
+          - name: "QBR 2025"
+            dashboards:
+              - name: "Executive Overview"
 
