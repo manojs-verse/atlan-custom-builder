@@ -135,7 +135,7 @@ Notes:
 
 Flags:
 - `-c, --config`: path to YAML config (required)
-- `-m, --module`: which module to run: `lineage` (default) or `connection`
+- `-m, --module`: which module to run: `lineage` (default), `connection`, `relational`, `object_store`, or `bi`
 - `--recreate-venv`: force recreation of the local `.venv`
 
 ### Sub-project: Custom Connection & Assets Creator
@@ -207,8 +207,13 @@ python create_object_store_assets.py --config config.yaml
 Config: see section `object_store_assets` in `config.example.yaml`.
 
 Notes:
-- Only S3-compatible providers are supported. Set provider to `s3`. The script validates the connection is S3-compatible (accepts ECS/MinIO/etc.).
-- Set `object_store_assets.connection_qualified_name` to the correct connection’s qualified name. You can look it up via the lineage tool or Atlan UI.
+- Only S3-compatible providers are supported. Set `provider: "s3"`. The script validates the connection is S3-compatible (accepts ECS/MinIO/etc.).
+- Set `object_store_assets.connection_qualified_name` or `connection_name` to target the right connection. You can look it up via the lineage tool or Atlan UI.
+- If your connection’s connector type shows as Unknown, set `assume_s3_compatible: true` to bypass type checks.
+- Strict SDKs may require ARNs. Provide:
+  - `buckets[].aws_arn` (e.g., `arn:aws:s3:::my-bucket`)
+  - `buckets[].objects[].aws_arn` (e.g., `arn:aws:s3:::my-bucket/path/to/file`)
+- Enable detailed logs during troubleshooting with `object_store_assets.debug: true`.
 
 ### Sub-project: BI Assets Creator
 
@@ -223,6 +228,43 @@ python create_bi_assets.py --config config.yaml
 
 Config: see section `bi_assets` in `config.example.yaml`.
 
+## Modules & user flow
+
+1) Configure credentials in `config.yaml` under `atlan`.
+2) Choose a module to run via `./run.sh -c config.yaml -m <module>`:
+   - `connection`: create a connection (KNOWN or CUSTOM) and optionally seed relational assets.
+   - `relational`: create databases / schemas / tables under a connection.
+   - `object_store`: create S3-compatible bucket and object assets.
+   - `bi`: create Tableau projects / workbooks / dashboards.
+   - `lineage`: interactively stitch lineage between assets.
+
+## Configuration reference
+
+- Global credentials: `atlan.base_url`, `atlan.api_key` (required by all modules)
+- Lineage defaults: `defaults` (optional; only used by `lineage`)
+- Connection: `custom_connection` (optional; used by `connection`)
+  - `connector.use`: `KNOWN` or `CUSTOM`
+  - `connector.known_type`: e.g., `SNOWFLAKE`, `S3`, `BIGQUERY` (if not in your SDK, we fall back to `CUSTOM` automatically and register it)
+  - `connector.custom`: `name`, `value`, `category`
+- Relational assets: `relational_assets` (optional; used by `relational`)
+- Object store assets: `object_store_assets` (optional; used by `object_store`)
+  - `provider: "s3"`, `connection_name` or `connection_qualified_name`
+  - `assume_s3_compatible` (bool), `debug` (bool)
+  - `buckets[].name`, optional `buckets[].aws_arn`, and `objects[].key`, optional `objects[].aws_arn`
+- BI assets: `bi_assets` (optional; used by `bi`)
+
+## Iceberg (recommended approach)
+
+- Prefer using the query engine’s connector that fronts your Iceberg catalog (e.g., `TRINO`, `DREMIO`, `ATHENA`, `SNOWFLAKE`). Create that connection via `-m connection`, then model Iceberg tables using `-m relational`.
+- If your SDK exposes `ICEBERG` in `AtlanConnectorType`, you can set `connector.use: KNOWN` and `known_type: "ICEBERG"`. Otherwise, a `CUSTOM` connector in category `DATABASE` also works.
+
+## Troubleshooting
+
+- Object store creation fails with required kwargs: add explicit ARNs for bucket/object and enable `debug: true` to see attempted parameters.
+- Provider mismatch or Unknown connector: set `assume_s3_compatible: true` or create a KNOWN `S3` connection.
+- KNOWN connector not found (e.g., `DREMIO`): we now fall back to `CUSTOM` automatically and proceed; logs list available enums.
+- Can’t resolve connection by name: use `connection_qualified_name` instead.
+- Logs: see `logs/*.log` for each module.
 
 ### License
 Apache License 2.0. See `LICENSE`.
