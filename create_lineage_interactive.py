@@ -12,7 +12,7 @@ import yaml
 from typing import List, Dict, Optional
 
 from pyatlan.client.atlan import AtlanClient
-from pyatlan.model.assets import Process, Table, Column, View, Connection
+from pyatlan.model.assets import Process, Table, Column, View, Connection, S3Object, S3Bucket, Application, ApplicationField
 from pyatlan.model.fluent_search import FluentSearch, CompoundQuery
 
 load_dotenv()
@@ -38,7 +38,11 @@ class InteractiveLineageCreator:
         self.supported_asset_types = {
             "1": {"name": "Table", "class": Table, "description": "Database tables"},
             "2": {"name": "View", "class": View, "description": "Database views"},
-            "3": {"name": "Column", "class": Column, "description": "Table/view columns"}
+            "3": {"name": "Column", "class": Column, "description": "Table/view columns"},
+            "4": {"name": "S3Object", "class": S3Object, "description": "S3 objects (files)"},
+            "5": {"name": "S3Bucket", "class": S3Bucket, "description": "S3 buckets"},
+            "6": {"name": "Application", "class": Application, "description": "App applications"},
+            "7": {"name": "ApplicationField", "class": ApplicationField, "description": "App application fields"}
         }
 
     @staticmethod
@@ -217,16 +221,20 @@ class InteractiveLineageCreator:
             assets = []
             for asset in response:
                 if isinstance(asset, asset_type_class):
-                    assets.append({
+                    asset_dict = {
                         'guid': asset.guid,
                         'qualified_name': asset.qualified_name,
                         'name': asset.name,
                         'type': asset.type_name,
                         'connection_name': getattr(asset, 'connection_name', 'Unknown'),
                         'connection_qualified_name': getattr(asset, 'connection_qualified_name', None),
-                        'database_name': getattr(asset, 'database_name', 'Unknown'),
-                        'schema_name': getattr(asset, 'schema_name', 'Unknown')
-                    })
+                    }
+                    # Add database/schema only if they exist (not for S3 objects)
+                    if hasattr(asset, 'database_name'):
+                        asset_dict['database_name'] = getattr(asset, 'database_name', 'Unknown')
+                    if hasattr(asset, 'schema_name'):
+                        asset_dict['schema_name'] = getattr(asset, 'schema_name', 'Unknown')
+                    assets.append(asset_dict)
             
             return assets
             
@@ -250,16 +258,20 @@ class InteractiveLineageCreator:
             assets = []
             for asset in response:
                 if isinstance(asset, asset_type_class):
-                    assets.append({
+                    asset_dict = {
                         'guid': asset.guid,
                         'qualified_name': asset.qualified_name,
                         'name': asset.name,
                         'type': asset.type_name,
                         'connection_name': getattr(asset, 'connection_name', 'Unknown'),
                         'connection_qualified_name': getattr(asset, 'connection_qualified_name', None),
-                        'database_name': getattr(asset, 'database_name', 'Unknown'),
-                        'schema_name': getattr(asset, 'schema_name', 'Unknown')
-                    })
+                    }
+                    # Add database/schema only if they exist (not for S3 objects)
+                    if hasattr(asset, 'database_name'):
+                        asset_dict['database_name'] = getattr(asset, 'database_name', 'Unknown')
+                    if hasattr(asset, 'schema_name'):
+                        asset_dict['schema_name'] = getattr(asset, 'schema_name', 'Unknown')
+                    assets.append(asset_dict)
             return assets
         except Exception as e:
             logger.error(f"❌ Failed prefix search: {e}")
@@ -310,15 +322,19 @@ class InteractiveLineageCreator:
                     if details['name'].lower() not in asset.name.lower():
                         continue
                 
-                assets.append({
+                asset_dict = {
                     'guid': asset.guid,
                     'qualified_name': asset.qualified_name,
                     'name': asset.name,
                     'type': asset.type_name,
                     'connection_name': getattr(asset, 'connection_name', 'Unknown'),
-                    'database_name': getattr(asset, 'database_name', 'Unknown'),
-                    'schema_name': getattr(asset, 'schema_name', 'Unknown')
-                })
+                }
+                # Add database/schema only if they exist (not for S3 objects)
+                if hasattr(asset, 'database_name'):
+                    asset_dict['database_name'] = getattr(asset, 'database_name', 'Unknown')
+                if hasattr(asset, 'schema_name'):
+                    asset_dict['schema_name'] = getattr(asset, 'schema_name', 'Unknown')
+                assets.append(asset_dict)
             
             print(f"✅ Found {len(assets)} matching assets")
             return assets
@@ -356,15 +372,19 @@ class InteractiveLineageCreator:
                 if search_term and search_term.lower() not in asset.name.lower():
                     continue
                     
-                assets.append({
+                asset_dict = {
                     'guid': asset.guid,
                     'qualified_name': asset.qualified_name,
                     'name': asset.name,
                     'type': asset.type_name,
                     'connection_name': getattr(asset, 'connection_name', 'Unknown'),
-                    'database_name': getattr(asset, 'database_name', 'Unknown'),
-                    'schema_name': getattr(asset, 'schema_name', 'Unknown')
-                })
+                }
+                # Add database/schema only if they exist (not for S3 objects)
+                if hasattr(asset, 'database_name'):
+                    asset_dict['database_name'] = getattr(asset, 'database_name', 'Unknown')
+                if hasattr(asset, 'schema_name'):
+                    asset_dict['schema_name'] = getattr(asset, 'schema_name', 'Unknown')
+                assets.append(asset_dict)
                 count += 1
             
             return assets
@@ -384,8 +404,11 @@ class InteractiveLineageCreator:
         for i, asset in enumerate(assets, 1):
             print(f"{i}. {asset['name']}")
             print(f"   Type: {asset['type']}")
-            print(f"   Database: {asset['database_name']}")
-            print(f"   Schema: {asset['schema_name']}")
+            # Only show database/schema for relational assets
+            if 'database_name' in asset and asset['database_name']:
+                print(f"   Database: {asset['database_name']}")
+            if 'schema_name' in asset and asset['schema_name']:
+                print(f"   Schema: {asset['schema_name']}")
             print(f"   Qualified Name: {asset['qualified_name']}")
             print("-" * 100)
 

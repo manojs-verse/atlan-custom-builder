@@ -39,7 +39,7 @@ custom_connection:
   name: "my-custom-conn"
   connector:
     use: "CUSTOM"           # KNOWN or CUSTOM
-    known_type: "API"       # used when use == KNOWN (e.g., SNOWFLAKE, API, BIGQUERY)
+    known_type: "API"       # used when use == KNOWN (e.g., SNOWFLAKE, API, BIGQUERY, APP)
     custom:
       name: "MY_CUSTOM"     # exported enum-like name
       value: "my-custom"    # internal value
@@ -53,6 +53,22 @@ custom_connection:
     tables:
       - name: "SAMPLE_TABLE"
         description: "Created by automation"
+
+# Example for App connection:
+# custom_connection:
+#   name: "my-app-connection"
+#   connector:
+#     use: "KNOWN"          # Use KNOWN for built-in connector types
+#     known_type: "APP"     # Use APP for App assets (if available in SDK)
+#   admin_roles:
+#     - "$admin"
+#   create_assets:
+#     enabled: false        # App assets are created separately via create_app_assets.py
+#
+# Note: If APP is not available in your SDK version, the script will automatically
+# attempt to create it as a custom connector. You can also explicitly use:
+#   use: "CUSTOM"
+#   known_type: "APP"       # Script will try APP first, then create custom if needed
 
 
 # ===== Module: Relational Assets Creator (optional) =====
@@ -104,4 +120,22 @@ bi_assets:
           - name: "QBR 2025"
             dashboards:
               - name: "Executive Overview"
+
+
+# ===== Module: App Assets Creator (optional) =====
+# Create Application and ApplicationField assets under an existing App connection.
+# First create the connection using the connection module with connector.known_type: "APP"
+app_assets:
+  enabled: false
+  connection_qualified_name: "default/app/12345"
+  # connection_name: "My-App-Connection"   # used if qualified name not provided
+  applications:
+    - name: "my-application"
+      description: "My custom application"
+      fields:
+        - name: "application-field"
+          description: "A field in the application"
+          # Optional: Link existing assets to this field
+          owned_assets:
+            - qualified_name: "default/snowflake/123456789/DATABASE/SCHEMA/TABLE"
 

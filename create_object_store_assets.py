@@ -256,6 +256,9 @@ def create_object_store_assets(client: AtlanClient, config: Dict) -> bool:
                 connector_label,
             )
             return False
+    
+    # Store connection name for OpenLineage namespace mapping documentation
+    connection_name = conn.name
 
     try:
         from pyatlan import model as _pm  # type: ignore
@@ -276,6 +279,27 @@ def create_object_store_assets(client: AtlanClient, config: Dict) -> bool:
     if not buckets:
         logger.info("No buckets specified. Nothing to create.")
         return True
+    
+    # Log OpenLineage namespace mapping requirements
+    first_bucket = buckets[0].get('name') if buckets else None
+    if first_bucket:
+        logger.warning("=" * 70)
+        logger.warning("IMPORTANT: OpenLineage Namespace Mapping for Lineage")
+        logger.warning("=" * 70)
+        logger.warning(f"Your S3 connection name: {connection_name}")
+        logger.warning(f"Your S3 bucket: {first_bucket}")
+        logger.warning("")
+        logger.warning("OpenLineage will send datasets with namespace: s3://%s", first_bucket)
+        logger.warning("Atlan expects namespace: %s", connection_name)
+        logger.warning("")
+        logger.warning("For lineage to work, you need ONE of these solutions:")
+        logger.warning("  1. Set Spark namespace to S3 connection name:")
+        logger.warning("     openlineage_namespace = '%s'", connection_name)
+        logger.warning("     (in spark_ol_minio.py)")
+        logger.warning("")
+        logger.warning("  2. Contact Atlan support to configure namespace mapping:")
+        logger.warning("     s3://%s → %s", first_bucket, connection_name)
+        logger.warning("=" * 70)
 
     for b in buckets:
         bucket_name = (b.get('name') or '').strip()
@@ -292,7 +316,6 @@ def create_object_store_assets(client: AtlanClient, config: Dict) -> bool:
                 connection_qn=connection_qn,
                 bucket_name=bucket_name,
                 parent_qn=f"{connection_qn}/{bucket_name}",
-                aws_arn=bucket_arn,
             )
             try:
                 bucket = bucket_class.creator(**b_kwargs)
@@ -319,7 +342,15 @@ def create_object_store_assets(client: AtlanClient, config: Dict) -> bool:
             logger.info(f"Creating S3 object asset '{obj_name}' (key={key})...")
             try:
                 parent_qn = f"{connection_qn}/{bucket_name}"
-                obj_arn = (obj.get('aws_arn') or f"{bucket_arn}/{key.strip('/')}").strip()
+                key = key.strip('/')
+                
+                # Force obj_name to be basename of key to prevent ARN or full path leaking into qualified name construction
+                obj_name = os.path.basename(key)
+                
+                # Construct ARN without the arn:aws:s3::: prefix to ensure correct qualified name
+                # The qualified name should be: connection_qn/bucket_name/key
+                obj_arn = f"{bucket_name}/{key}"
+                
                 o_kwargs = _build_creator_kwargs(
                     object_class.creator,
                     'object',
@@ -361,5 +392,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 

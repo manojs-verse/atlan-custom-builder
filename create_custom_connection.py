@@ -28,6 +28,31 @@ custom_connection:
       - name: "SAMPLE_TABLE"
         description: "Created by automation"
 
+Example for App connection:
+
+custom_connection:
+  name: "my-app-connection"
+  connector:
+    use: "KNOWN"              # Use KNOWN for built-in connector types
+    known_type: "APP"         # Use APP for App assets (if available in SDK)
+  admin_roles:
+    - "$admin"
+  create_assets:
+    enabled: false            # App assets are created separately via create_app_assets.py
+
+# Alternative if APP is not available in your SDK version:
+# The script will automatically try to create APP as a custom connector
+# You can also explicitly use CUSTOM:
+# custom_connection:
+#   name: "my-app-connection"
+#   connector:
+#     use: "CUSTOM"
+#     known_type: "APP"       # Script will try APP first, then create custom if needed
+#     custom:
+#       name: "APP"
+#       value: "app"
+#       category: "API"
+
 """
 
 import os
@@ -116,27 +141,46 @@ def _resolve_admin_roles(client: AtlanClient, role_names: List[str]) -> List[str
 def _get_connector_type(cfg: Dict) -> AtlanConnectorType:
     connector_cfg = cfg.get('connector', {}) if isinstance(cfg, dict) else {}
     use_mode = (connector_cfg.get('use') or 'CUSTOM').upper()
-
-    if use_mode == 'KNOWN':
-        known = (connector_cfg.get('known_type') or '').upper().strip()
-        if not known:
-            raise ValueError("known_type is required when connector.use == 'KNOWN'")
+    
+    # First, try to use known_type if provided (even if use is CUSTOM)
+    # This allows users to specify known_type without having to set use: KNOWN
+    known = (connector_cfg.get('known_type') or '').upper().strip()
+    if known:
         try:
-            return getattr(AtlanConnectorType, known)
+            connector_type = getattr(AtlanConnectorType, known)
+            logger.info(f"Using known connector type: {known}")
+            return connector_type
         except AttributeError:
             available = [m for m in dir(AtlanConnectorType) if m.isupper() and not m.startswith('_')]
-            logger.warning(f"KNOWN type '{known}' not found in SDK. Available: {available}. Falling back to CUSTOM.")
-            # Convert to CUSTOM path using provided known value as custom name/value
-            connector_cfg['use'] = 'CUSTOM'
-            connector_cfg.setdefault('custom', {})
-            connector_cfg['custom'].setdefault('name', known)
-            connector_cfg['custom'].setdefault('value', known.lower())
-            connector_cfg['custom'].setdefault('category', 'DATABASE')
+            logger.warning(f"KNOWN type '{known}' not found in SDK. Available: {available}")
+            
+            # Special handling for APP connector type
+            if known == 'APP':
+                logger.info("APP connector type not found in SDK. Attempting to create custom APP connector...")
+                try:
+                    # Try to create APP as a custom connector with correct values
+                    create_custom = getattr(AtlanConnectorType, 'CREATE_CUSTOM', None)
+                    if create_custom:
+                        create_custom(name='APP', value='app', category=AtlanConnectionCategory.API)
+                        return getattr(AtlanConnectorType, 'APP')
+                except Exception as e:
+                    logger.warning(f"Could not create custom APP connector: {e}")
+            
+            # If use is KNOWN and known_type doesn't exist, raise error
+            if use_mode == 'KNOWN':
+                raise ValueError(f"KNOWN type '{known}' not found in SDK and could not be created. Available types: {available}")
+            
+            # If use is CUSTOM, fall through to custom creation logic below
+            logger.info(f"Falling back to CUSTOM connector creation for '{known}'")
+
+    # If use is KNOWN but no known_type provided, raise error
+    if use_mode == 'KNOWN' and not known:
+        raise ValueError("known_type is required when connector.use == 'KNOWN'")
 
     # Default to CUSTOM: register a custom connector type if provided
     custom = connector_cfg.get('custom', {})
-    custom_name = (custom.get('name') or 'MY_CUSTOM').upper()
-    custom_value = custom.get('value') or 'my-custom'
+    custom_name = (custom.get('name') or (known if known else 'MY_CUSTOM')).upper()
+    custom_value = (custom.get('value') or (known.lower() if known else 'my-custom'))
     category_str = (custom.get('category') or 'API').upper()
 
     try:

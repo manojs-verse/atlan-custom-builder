@@ -7,7 +7,7 @@ VENV_DIR="$PROJECT_ROOT/.venv"
 PYTHON_BIN="python3"
 
 usage() {
-  echo "Usage: $0 -c <config.yaml> [-m lineage|connection|relational|object_store|bi] [--recreate-venv]" >&2
+  echo "Usage: $0 -c <config.yaml> [-m lineage|connection|relational|object_store|bi|app] [--recreate-venv]" >&2
   exit 1
 }
 
@@ -66,8 +66,10 @@ case "$MODULE" in
     exec python "$PROJECT_ROOT/create_object_store_assets.py" --config "$CONFIG" ;;
   bi)
     exec python "$PROJECT_ROOT/create_bi_assets.py" --config "$CONFIG" ;;
+  app)
+    exec python "$PROJECT_ROOT/create_app_assets.py" --config "$CONFIG" ;;
   *)
-    echo "Unknown module: $MODULE. Use 'lineage', 'connection', 'relational', 'object_store', or 'bi'." >&2
+    echo "Unknown module: $MODULE. Use 'lineage', 'connection', 'relational', 'object_store', 'bi', or 'app'." >&2
     exit 3 ;;
 esac
 

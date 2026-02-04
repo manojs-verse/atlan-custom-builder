@@ -1,20 +1,33 @@
 ## Atlan Custom Builder
 
-This repository hosts custom assets, lineage, and solution work for Atlan. The first sub-project is the Interactive Lineage Creator; more sub-projects will be added over time.
+This repository hosts custom assets, lineage, and solution work for Atlan.
 
-### Sub-project: Interactive Lineage Creator
+### Documentation
+- **[OpenLineage Spark-to-S3 Lineage Guide](OPENLINEAGE_LINEAGE_GUIDE.md)** - Complete guide for setting up OpenLineage with Spark and S3, including troubleshooting the two-namespace problem
+- **README.md (this file)** - Project overview and general usage
+
+### Sub-Projects
+This repository includes multiple tools for working with Atlan:
+1. **Interactive Lineage Creator** - CLI tool to create lineage between assets
+2. **Custom Connection Creator** - Create custom connections in Atlan
+3. **Object Store Assets Creator** - Create S3 buckets and objects
+4. **Spark OpenLineage Integration** - Send Spark job lineage to Atlan via OpenLineage
+
+---
+
+## Interactive Lineage Creator
 
 Create lineage between assets in Atlan via an interactive CLI. Search for assets (Tables, Views, Columns) across connections and stitch inputs → outputs into a `Process` using the official `pyatlan` SDK.
 
 ### Features
 - **Interactive search**: pick a connection, then find assets by qualified name, targeted search (database/schema), or simple name search.
-- **Supported asset types**: `Table`, `View`, `Column`.
+- **Supported asset types**: `Table`, `View`, `Column`, `S3Object`, `S3Bucket`.
 - **Process creation**: builds a descriptive name, accepts a custom Process ID, optional SQL and Source URL, then saves lineage to Atlan.
 - **Logging**: writes to `logs/lineage_creation.log` and streams to the console.
 
 ### Requirements
 - Python 3.9+
-- Packages: `pyatlan`, `python-dotenv`
+- Packages: `pyatlan`, `python-dotenv`, `pyyaml`
 
 ### Quickstart
 ```bash
@@ -30,7 +43,7 @@ source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install pyatlan python-dotenv pyyaml
 
 # Configure environment
-cp .env.example .env  # or create .env as shown below
+# Create a .env file with BASE_URL and API_KEY (see below)
 
 # Create your config from the template
 cp config.example.yaml config.yaml
@@ -42,7 +55,7 @@ cp config.example.yaml config.yaml
 python create_lineage_interactive.py --config config.yaml
 ```
 
-If you prefer, you can install dependencies via a requirements file of your own. This repository does not ship one by default.
+If you prefer, you can install dependencies via a requirements file of your own. The root does not ship a consolidated requirements file; module-specific files are under sub-projects (e.g., `spark-asset-creator/requirements.txt`).
 
 ### Configuration
 You can provide credentials via YAML config or environment variables. A `.env` file is also supported via `python-dotenv`.
@@ -66,7 +79,7 @@ Notes:
 When you run the script, you'll be guided through these steps:
 1. **Select INPUT assets (sources)**
    - Choose a connection
-   - Choose an asset type (`Table`, `View`, or `Column`)
+   - Choose an asset type (`Table`, `View`, `Column`, `S3Object`, `S3Bucket`)
    - Choose a search method:
      - Direct qualified name (fastest)
      - Targeted search (database/schema/name)
@@ -228,6 +241,38 @@ python create_bi_assets.py --config config.yaml
 
 Config: see section `bi_assets` in `config.example.yaml`.
 
+### Sub-project: Spark OpenLineage Integration (MinIO demo)
+
+Send Spark job lineage events to Atlan using OpenLineage, with a local MinIO S3-compatible store for inputs/outputs.
+
+Prerequisites:
+- Docker (for MinIO)
+- Java 11+ and Spark 3.5 locally (spark-submit available)
+- An Atlan API key with OpenLineage access
+
+Quickstart:
+```bash
+cd spark-asset-creator
+
+# 1) Start MinIO and seed demo data (bucket + CSV)
+./001-run-minio-docker.sh
+
+# 2) Provide your Atlan API key for OpenLineage
+echo "<YOUR_ATLAN_API_KEY>" > atlan_token.txt
+
+# 3) (Optional) Create venv and install dependencies
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 4) Run the Spark job with OpenLineage configured
+./run-spark-job.sh
+```
+
+Notes:
+- Edit `spark-asset-creator/spark_ol_minio.py` to set `spark_namespace` (your Spark connection name in Atlan) and adjust `s3_bucket`, `input_path`, and `output_path` as needed.
+- Due to the OpenLineage S3 dataset extractor, dataset namespaces default to `s3://<bucket>`. For lineage linking in Atlan, follow the guidance in `OPENLINEAGE_LINEAGE_GUIDE.md` (Two-Namespace Problem).
+- More details and troubleshooting: see `OPENLINEAGE_LINEAGE_GUIDE.md`.
+
 ## Modules & user flow
 
 1) Configure credentials in `config.yaml` under `atlan`.
@@ -237,6 +282,7 @@ Config: see section `bi_assets` in `config.example.yaml`.
    - `object_store`: create S3-compatible bucket and object assets.
    - `bi`: create Tableau projects / workbooks / dashboards.
    - `lineage`: interactively stitch lineage between assets.
+   - `spark-asset-creator`: local Spark + OpenLineage demo with MinIO (see section above).
 
 ## Configuration reference
 
@@ -252,6 +298,13 @@ Config: see section `bi_assets` in `config.example.yaml`.
   - `assume_s3_compatible` (bool), `debug` (bool)
   - `buckets[].name`, optional `buckets[].aws_arn`, and `objects[].key`, optional `objects[].aws_arn`
 - BI assets: `bi_assets` (optional; used by `bi`)
+
+### Example configs
+- See `backup-configs/` for ready-to-use examples (e.g., `backup-configs/config2.yaml`, `backup-configs/config6.yaml`).
+- Example command:
+  ```bash
+  ./run.sh -c backup-configs/config2.yaml -m object_store
+  ```
 
 ## Iceberg (recommended approach)
 
