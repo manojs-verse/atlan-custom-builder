@@ -11,9 +11,15 @@ __pycache__/
 logs/
 
 # Local config (real credentials)
+# Ignore all config files that may contain credentials
 config.yaml
 *.local.yaml
 *.secrets.yaml
+# Config files with spaces in names
+config - *.yaml
+# Backup configs directory
+backup-configs/
+# But keep the example template (config.example.yaml is safe to commit)
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
