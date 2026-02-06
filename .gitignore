@@ -1,3 +1,13 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+*.icloud
+
 # Virtual environment
 .venv/
 
@@ -9,6 +19,9 @@ __pycache__/
 
 # Logs
 logs/
+
+# Local-only docs (kept out of repo)
+OPENLINEAGE_LINEAGE_GUIDE.md
 
 # Local config (real credentials)
 # Ignore all config files that start with "config" and end with ".yaml"
