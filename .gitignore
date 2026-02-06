@@ -20,6 +20,11 @@ __pycache__/
 # Logs
 logs/
 
+# Atlan / API credentials (never commit tokens or keys)
+atlan_token.txt
+*atlan*token*
+*token*.txt
+
 # Local-only docs (kept out of repo)
 OPENLINEAGE_LINEAGE_GUIDE.md
 

@@ -1,4 +1,5 @@
 # spark_customer_analytics_demo.py
+import os
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
@@ -6,9 +7,23 @@ from pyspark.sql import functions as F
 # CONFIGURATION - Update these values for your environment
 # =============================================================================
 
+def _get_atlan_api_key():
+    """Read Atlan API key from ATLAN_API_KEY env var or from file ATLAN_API_KEY_FILE (no secrets in code)."""
+    key = os.environ.get("ATLAN_API_KEY", "").strip()
+    if key:
+        return key
+    path = os.environ.get("ATLAN_API_KEY_FILE", "").strip()
+    if path and os.path.isfile(path):
+        with open(path, "r") as f:
+            return f.read().strip()
+    raise RuntimeError(
+        "Atlan API key required. Set ATLAN_API_KEY or ATLAN_API_KEY_FILE (path to token file). "
+        "Do not commit tokens to the repo."
+    )
+
 # Atlan OpenLineage Configuration
 atlan_base_url = "https://home.atlan.com"
-atlan_api_key = "REDACTED-ROTATE-KEY"
+atlan_api_key = _get_atlan_api_key()
 
 # CRITICAL NAMESPACE CONFIGURATION:
 # Two namespaces are needed for proper lineage in Atlan:
