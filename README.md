@@ -8,21 +8,27 @@ This repository hosts custom assets, lineage, and solution work for Atlan.
 
 ### Sub-Projects
 This repository includes multiple tools for working with Atlan:
-1. **Interactive Lineage Creator** - CLI tool to create lineage between assets
-2. **Custom Connection Creator** - Create custom connections in Atlan
-3. **Object Store Assets Creator** - Create S3 buckets and objects
-4. **Spark OpenLineage Integration** - Send Spark job lineage to Atlan via OpenLineage
+1. **Interactive Lineage Creator** - Create lineage between assets (table or column-level), with optional 1:1 column mapping and batch configs from Excel
+2. **Custom Connection Creator** - Create custom connections in Atlan (KNOWN or CUSTOM connector types)
+3. **Relational Assets Creator** - Create Database / Schema / Table assets under an existing connection
+4. **Object Store Assets Creator** - Create S3-compatible bucket and object assets (S3, MinIO, ECS, Wasabi, etc.)
+5. **BI Assets Creator** - Create Tableau projects, workbooks, and dashboards under an existing connection
+6. **App Assets Creator** - Create Application and ApplicationField assets under an existing App connection
+7. **Spark OpenLineage Integration** - Send Spark job lineage to Atlan via OpenLineage (MinIO demo)
 
 ---
 
 ## Interactive Lineage Creator
 
-Create lineage between assets in Atlan via an interactive CLI. Search for assets (Tables, Views, Columns) across connections and stitch inputs → outputs into a `Process` using the official `pyatlan` SDK.
+Create lineage between assets in Atlan via an interactive CLI or fully automated from config. Search for assets across connections and stitch inputs → outputs into `Process` entities using the official `pyatlan` SDK.
 
 ### Features
 - **Interactive search**: pick a connection, then find assets by qualified name, targeted search (database/schema), or simple name search.
-- **Supported asset types**: `Table`, `View`, `Column`, `S3Object`, `S3Bucket`.
-- **Process creation**: builds a descriptive name, accepts a custom Process ID, optional SQL and Source URL, then saves lineage to Atlan.
+- **Supported asset types**: `Table`, `View`, `Column`, `S3Object`, `S3Bucket`, `Application`, `ApplicationField`, and Power BI types (`PowerBITable`, `PowerBIDataset`, `PowerBIReport`, `PowerBIDashboard`, `PowerBIColumn`, `PowerBIMeasure`, `PowerBIWorkspace`, `PowerBIDataflow`, `PowerBIPage`, `PowerBITile`, `PowerBIDatasource`).
+- **Column-level lineage**: use column qualified names in `inputs` and `outputs` to create column-level lineage in Atlan.
+- **1:1 column lineage mode**: set `column_lineage_1to1: true` in config so that `input[i]` is linked only to `output[i]` (col1→col1, col2→col2, …). Without it, one process is created with all inputs and all outputs (many-to-many).
+- **Process creation**: builds a descriptive name, accepts a custom Process ID (or per-column IDs in 1:1 mode), optional SQL and Source URL, then saves lineage to Atlan.
+- **Batch from Excel**: use Qualified Names exported from Atlan (e.g. from xlsx “Qualified Name” column) in config to map source columns to destination columns 1:1; example configs: `config-fedex.yaml`, `config-fedex2.yaml`, `config-fedex3.yaml`.
 - **Logging**: writes to `logs/lineage_creation.log` and streams to the console.
 
 ### Requirements
@@ -76,10 +82,10 @@ Notes:
 - The script loads `.env` automatically at startup.
 
 ### Usage Flow
-When you run the script, you'll be guided through these steps:
+When you run the script interactively (or when config defaults are missing), you'll be guided through:
 1. **Select INPUT assets (sources)**
    - Choose a connection
-   - Choose an asset type (`Table`, `View`, `Column`, `S3Object`, `S3Bucket`)
+   - Choose an asset type (Table, View, Column, S3Object, S3Bucket, Application, ApplicationField, or Power BI types)
    - Choose a search method:
      - Direct qualified name (fastest)
      - Targeted search (database/schema/name)
@@ -102,36 +108,59 @@ python create_lineage_interactive.py
 You will be prompted to select connections and assets and then confirm creation. Logs are written to `logs/lineage_creation.log`.
 
 ### How It Works
-- Initializes an `AtlanClient` using `BASE_URL` and `API_KEY`.
-- Searches connections and assets using `FluentSearch` with `CompoundQuery`.
-- Creates a `Process` via `Process.creator(...)` with references to selected input/output assets by GUID.
-- Saves the resulting lineage to Atlan with `client.asset.save(process)`.
+- Initializes an `AtlanClient` using `BASE_URL` and `API_KEY` (from config or env).
+- Resolves `defaults.inputs` and `defaults.outputs` by qualified name (or falls back to interactive selection).
+- **1:1 mode** (`column_lineage_1to1: true` and equal-length lists): creates one `Process` per (input[i], output[i]) with `process_id` = `{base_process_id}_{column_name}`, so Atlan shows col1→col1, col2→col2, etc. Re-runs update the same processes.
+- **Default mode**: creates a single `Process` with all input refs and all output refs (many-to-many lineage).
+- Uses `Process.creator(...)` with asset references by GUID and saves via `client.asset.save(process)`.
 
 ### Optional Non-Interactive Defaults
-You can provide simple defaults in the YAML to skip prompts:
+You can provide defaults in the YAML to skip prompts and run fully automated:
 
 ```yaml
 defaults:
   inputs:
     - "<qualified_name_of_input_asset>"
+    # For column-level lineage, list column qualified names (one per source column).
   outputs:
     - "<qualified_name_of_output_asset>"
-  process_id: "etl_job_123"      # optional
+    # Same order as inputs for 1:1 mapping when column_lineage_1to1 is true.
+  process_id: "etl_job_123"      # optional; in 1:1 mode becomes base: "<process_id>_<column_name>"
   sql: "SELECT 1"                # optional
   source_url: "https://example"  # optional
-  auto_confirm: true              # if true, use defaults without prompting
+  auto_confirm: true             # if true, use defaults without prompting
   process_connection_qualified_name: "default/snowflake/12345"  # optional override for Process
+  # 1:1 column lineage: one Process per (input[i], output[i]) so col1→col1, col2→col2, …
+  column_lineage_1to1: true      # optional; when true and len(inputs)==len(outputs), creates N processes
 ```
 
 Notes:
 - If `inputs` or `outputs` are omitted or cannot be resolved, the tool falls back to interactive selection for that role.
 - If `auto_confirm` is false/omitted, defaults act as prefilled values and you'll still be prompted.
+- **1:1 mode**: when `column_lineage_1to1: true` and inputs/outputs have the same length, the tool creates one Process per pair (input[i] → output[i]). Each process gets a stable ID `{process_id}_{column_name}` so re-runs update the same processes.
+- **Without 1:1 mode**: a single Process is created with all inputs and all outputs (Atlan shows many-to-many lineage between them).
+
+### Batch configs from Excel (source → destination column lineage)
+You can build a config from Atlan exports (xlsx) that include a “Qualified Name” column:
+
+1. Export source and destination table columns from Atlan (e.g. `mysql.xlsx`, `bigquery.xlsx`).
+2. Align columns 1:1 by name (e.g. by the “Title” column in the export).
+3. Put source column Qualified Names in `defaults.inputs` and destination column Qualified Names in `defaults.outputs` in the same order.
+4. Set `column_lineage_1to1: true` and a stable `process_id` (e.g. `p365`).
+5. Run: `./run.sh -c config-fedex.yaml -m lineage`.
+
+Example configs in this repo (replace credentials as needed):
+- **config-fedex.yaml** – `rfid_scan_events_raw` (mssql → bigquery), 10 columns, process_id `p365`
+- **config-fedex2.yaml** – `facility_reference_raw` (mssql → bigquery), 14 columns, process_id `p366`
+- **config-fedex3.yaml** – `shipment_manifest_raw` (mssql → bigquery), 16 columns, process_id `p367`
+
+Each uses a distinct `process_id` so re-runs update the same processes and do not create duplicates.
 
 ### Troubleshooting
 - **No connections found**: Verify the API token permissions and that the account can view the relevant connections.
 - **Auth errors (401/403)**: Double-check `BASE_URL` and `API_KEY` values and scope.
 - **Slow or empty asset results**: Use targeted search with database/schema and exact case where possible.
-- **Duplicates**: Re-using the same Process ID may cause conflicts or multiple similar processes. Prefer stable, unique IDs per pipeline/job run.
+- **Duplicates**: Use a stable `process_id` (and in 1:1 mode, each column gets `process_id_<column_name>`). Re-runs then update the same processes.
 - **Logging**: Inspect `logs/lineage_creation.log` for details.
 
 ### Development Notes
@@ -140,7 +169,7 @@ Notes:
 - Extensibility: add more asset types by updating the `supported_asset_types` map in the script.
 
 ### Helper Script
-`run.sh` wraps venv creation and dependency installation, then runs the script with a provided config:
+`run.sh` wraps venv creation and dependency installation, then runs the chosen module with a provided config:
 
 ```bash
 ./run.sh -c config.yaml -m lineage
@@ -148,7 +177,7 @@ Notes:
 
 Flags:
 - `-c, --config`: path to YAML config (required)
-- `-m, --module`: which module to run: `lineage` (default), `connection`, `relational`, `object_store`, or `bi`
+- `-m, --module`: which module to run: `lineage` (default), `connection`, `relational`, `object_store`, `bi`, or `app`
 - `--recreate-venv`: force recreation of the local `.venv`
 
 ### Sub-project: Custom Connection & Assets Creator
@@ -241,6 +270,19 @@ python create_bi_assets.py --config config.yaml
 
 Config: see section `bi_assets` in `config.example.yaml`.
 
+### Sub-project: App Assets Creator
+
+Create Application and ApplicationField assets under an existing App connection. Create the App connection first via `-m connection` with `connector.known_type: "APP"` (or CUSTOM if APP is not in your SDK).
+
+```bash
+./run.sh -c config.yaml -m app
+
+# Or run directly
+python create_app_assets.py --config config.yaml
+```
+
+Config: see section `app_assets` in `config.example.yaml`. You can link existing assets to application fields via `owned_assets` (list of qualified names).
+
 ### Sub-project: Spark OpenLineage Integration (MinIO demo)
 
 Send Spark job lineage events to Atlan using OpenLineage, with a local MinIO S3-compatible store for inputs/outputs.
@@ -277,32 +319,39 @@ Notes:
 
 1) Configure credentials in `config.yaml` under `atlan`.
 2) Choose a module to run via `./run.sh -c config.yaml -m <module>`:
-   - `connection`: create a connection (KNOWN or CUSTOM) and optionally seed relational assets.
-   - `relational`: create databases / schemas / tables under a connection.
-   - `object_store`: create S3-compatible bucket and object assets.
-   - `bi`: create Tableau projects / workbooks / dashboards.
-   - `lineage`: interactively stitch lineage between assets.
-   - `spark-asset-creator`: local Spark + OpenLineage demo with MinIO (see section above).
+   - **lineage** (default): create lineage between assets (interactive or from config; supports 1:1 column lineage and batch configs from Excel).
+   - **connection**: create a connection (KNOWN or CUSTOM) and optionally seed relational assets.
+   - **relational**: create databases / schemas / tables under a connection.
+   - **object_store**: create S3-compatible bucket and object assets.
+   - **bi**: create Tableau projects / workbooks / dashboards.
+   - **app**: create Application and ApplicationField assets under an App connection.
+   - **spark-asset-creator**: local Spark + OpenLineage demo with MinIO (see section above; run from `spark-asset-creator/`).
 
 ## Configuration reference
 
-- Global credentials: `atlan.base_url`, `atlan.api_key` (required by all modules)
-- Lineage defaults: `defaults` (optional; only used by `lineage`)
-- Connection: `custom_connection` (optional; used by `connection`)
+- **Global credentials**: `atlan.base_url`, `atlan.api_key` (required by all modules)
+- **Lineage** (`defaults`; optional; only used by `lineage`):
+  - `inputs`, `outputs`: lists of asset qualified names (use column QNs for column-level lineage)
+  - `process_id`, `sql`, `source_url`, `auto_confirm`, `process_connection_qualified_name`
+  - `column_lineage_1to1` (bool): when true and len(inputs)==len(outputs), creates one Process per pair (col1→col1, col2→col2, …)
+- **Connection**: `custom_connection` (optional; used by `connection`)
   - `connector.use`: `KNOWN` or `CUSTOM`
-  - `connector.known_type`: e.g., `SNOWFLAKE`, `S3`, `BIGQUERY` (if not in your SDK, we fall back to `CUSTOM` automatically and register it)
+  - `connector.known_type`: e.g., `SNOWFLAKE`, `S3`, `BIGQUERY`, `APP` (fallback to CUSTOM if not in SDK)
   - `connector.custom`: `name`, `value`, `category`
-- Relational assets: `relational_assets` (optional; used by `relational`)
-- Object store assets: `object_store_assets` (optional; used by `object_store`)
+- **Relational assets**: `relational_assets` (optional; used by `relational`)
+- **Object store assets**: `object_store_assets` (optional; used by `object_store`)
   - `provider: "s3"`, `connection_name` or `connection_qualified_name`
   - `assume_s3_compatible` (bool), `debug` (bool)
   - `buckets[].name`, optional `buckets[].aws_arn`, and `objects[].key`, optional `objects[].aws_arn`
-- BI assets: `bi_assets` (optional; used by `bi`)
+- **BI assets**: `bi_assets` (optional; used by `bi`)
+- **App assets**: `app_assets` (optional; used by `app`); `applications[].fields[].owned_assets` for linking existing assets
 
 ### Example configs
-- See `backup-configs/` for ready-to-use examples (e.g., `backup-configs/config2.yaml`, `backup-configs/config6.yaml`).
-- Example command:
+- **Lineage (batch column 1:1)**: `config-fedex.yaml`, `config-fedex2.yaml`, `config-fedex3.yaml` — source→destination column lineage from Excel Qualified Names; each uses a distinct `process_id` (p365, p366, p367).
+- **Other modules**: see `backup-configs/` for examples (e.g., `backup-configs/config2.yaml`, `backup-configs/config6.yaml`).
+- Example commands:
   ```bash
+  ./run.sh -c config-fedex.yaml -m lineage
   ./run.sh -c backup-configs/config2.yaml -m object_store
   ```
 
