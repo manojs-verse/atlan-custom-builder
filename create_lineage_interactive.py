@@ -12,7 +12,11 @@ import yaml
 from typing import List, Dict, Optional
 
 from pyatlan.client.atlan import AtlanClient
-from pyatlan.model.assets import Process, Table, Column, View, Connection, S3Object, S3Bucket, Application, ApplicationField
+from pyatlan.model.assets import (
+    Process, Table, Column, View, Connection, S3Object, S3Bucket, Application, ApplicationField,
+    PowerBITable, PowerBIDataset, PowerBIReport, PowerBIDashboard, PowerBIColumn, PowerBIMeasure,
+    PowerBIWorkspace, PowerBIDataflow, PowerBIPage, PowerBITile, PowerBIDatasource
+)
 from pyatlan.model.fluent_search import FluentSearch, CompoundQuery
 
 load_dotenv()
@@ -42,7 +46,18 @@ class InteractiveLineageCreator:
             "4": {"name": "S3Object", "class": S3Object, "description": "S3 objects (files)"},
             "5": {"name": "S3Bucket", "class": S3Bucket, "description": "S3 buckets"},
             "6": {"name": "Application", "class": Application, "description": "App applications"},
-            "7": {"name": "ApplicationField", "class": ApplicationField, "description": "App application fields"}
+            "7": {"name": "ApplicationField", "class": ApplicationField, "description": "App application fields"},
+            "8": {"name": "PowerBITable", "class": PowerBITable, "description": "Power BI tables"},
+            "9": {"name": "PowerBIDataset", "class": PowerBIDataset, "description": "Power BI datasets"},
+            "10": {"name": "PowerBIReport", "class": PowerBIReport, "description": "Power BI reports"},
+            "11": {"name": "PowerBIDashboard", "class": PowerBIDashboard, "description": "Power BI dashboards"},
+            "12": {"name": "PowerBIColumn", "class": PowerBIColumn, "description": "Power BI columns"},
+            "13": {"name": "PowerBIMeasure", "class": PowerBIMeasure, "description": "Power BI measures"},
+            "14": {"name": "PowerBIWorkspace", "class": PowerBIWorkspace, "description": "Power BI workspaces"},
+            "15": {"name": "PowerBIDataflow", "class": PowerBIDataflow, "description": "Power BI dataflows"},
+            "16": {"name": "PowerBIPage", "class": PowerBIPage, "description": "Power BI pages"},
+            "17": {"name": "PowerBITile", "class": PowerBITile, "description": "Power BI tiles"},
+            "18": {"name": "PowerBIDatasource", "class": PowerBIDatasource, "description": "Power BI data sources"}
         }
 
     @staticmethod
@@ -592,8 +607,54 @@ class InteractiveLineageCreator:
         
         return f"{input_str} -> {output_str}"
 
+    def _column_name_from_qualified_name(self, qualified_name: str) -> str:
+        """Extract the last segment (column name) from a qualified name for stable process_id."""
+        if not qualified_name or not isinstance(qualified_name, str):
+            return "column"
+        parts = qualified_name.strip().rstrip("/").split("/")
+        return parts[-1] if parts else "column"
+
+    def _create_single_pair_process(
+        self,
+        input_asset: Dict,
+        output_asset: Dict,
+        connection_qn: str,
+        base_process_id: str,
+        sql_query: str = "",
+        source_url: str = "",
+    ) -> bool:
+        """Create one Process with a single input and single output (for 1:1 column lineage)."""
+        in_ref = input_asset['asset_class'].ref_by_guid(guid=input_asset['guid'])
+        out_ref = output_asset['asset_class'].ref_by_guid(guid=output_asset['guid'])
+        col_name = self._column_name_from_qualified_name(output_asset.get('qualified_name') or output_asset.get('name', ''))
+        process_id = f"{base_process_id}_{col_name}" if base_process_id else f"lineage_{col_name}"
+        process_name = f"{input_asset['name']} -> {output_asset['name']}"
+        process = Process.creator(
+            name=process_name,
+            connection_qualified_name=connection_qn,
+            process_id=process_id,
+            inputs=[in_ref],
+            outputs=[out_ref],
+        )
+        if sql_query:
+            process.sql = sql_query
+        if source_url:
+            process.source_url = source_url
+        response = self.client.asset.save(process)
+        if response:
+            created = response.assets_created(Process) or []
+            updated = response.assets_updated(Process) or []
+            if created or updated:
+                return True
+            guid_map = getattr(response, 'guid_assignments', None) or {}
+            if isinstance(guid_map, dict) and len(guid_map) > 0:
+                return True
+        return False
+
     def create_lineage_process(self, inputs: List[Dict], outputs: List[Dict]) -> bool:
-        """Create the lineage process"""
+        """Create the lineage process(es). When column_lineage_1to1 is True and inputs/outputs
+        have the same length, creates one process per pair (input[i] -> output[i]) for true
+        column-level 1:1 lineage. Otherwise creates one process with all inputs and all outputs."""
         try:
             defaults = self._defaults_section()
             # Prefer explicit override from config if provided
@@ -624,14 +685,35 @@ class InteractiveLineageCreator:
             if not connection_qn:
                 print("❌ No connection information available")
                 return False
-            
+
+            column_lineage_1to1 = bool(defaults.get('column_lineage_1to1'))
+            if column_lineage_1to1 and len(inputs) == len(outputs) and len(inputs) > 0:
+                # 1:1 column lineage: one process per (input[i], output[i]) pair
+                print(f"\n 1:1 column lineage mode: creating {len(inputs)} process(es) (col1→col1, col2→col2, …)")
+                base_process_id = (defaults.get('process_id') or '').strip() or "lineage_process"
+                default_sql = (defaults.get('sql') or '').strip() if isinstance(defaults.get('sql'), str) else ''
+                default_source_url = (defaults.get('source_url') or '').strip() if isinstance(defaults.get('source_url'), str) else ''
+                created_ok = 0
+                failed = 0
+                for i, (in_asset, out_asset) in enumerate(zip(inputs, outputs)):
+                    ok = self._create_single_pair_process(
+                        in_asset, out_asset, connection_qn, base_process_id, default_sql, default_source_url
+                    )
+                    if ok:
+                        created_ok += 1
+                        logger.info(f"  [{i+1}/{len(inputs)}] {in_asset['name']} -> {out_asset['name']}")
+                    else:
+                        failed += 1
+                        logger.warning(f"  [{i+1}/{len(inputs)}] Failed: {in_asset['name']} -> {out_asset['name']}")
+                logger.info(f"✅ 1:1 column lineage: {created_ok} process(es) created/updated, {failed} failed")
+                return failed == 0
+
+            # Original behavior: one process with all inputs and all outputs
             process_name = self.create_process_name(inputs, outputs)
-            
             print(f"\n Process Details:")
             print(f"   Name: {process_name}")
             print(f"   Process Connection: {process_connection['name'] if process_connection else 'Unknown'}")
-            
-            defaults = self._defaults_section()
+
             default_process_id = (defaults.get('process_id') or '').strip() if isinstance(defaults.get('process_id'), str) else ''
             default_sql = (defaults.get('sql') or '').strip() if isinstance(defaults.get('sql'), str) else ''
             default_source_url = (defaults.get('source_url') or '').strip() if isinstance(defaults.get('source_url'), str) else ''
@@ -647,17 +729,17 @@ class InteractiveLineageCreator:
                     process_id = f"lineage_process_{len(inputs)}_{len(outputs)}"
                 sql_query = input("🔧 Enter SQL query (optional, press Enter to skip): ").strip() or default_sql
                 source_url = input("🔧 Enter source URL (optional, press Enter to skip): ").strip() or default_source_url
-            
+
             input_refs = []
             for asset in inputs:
                 asset_class = asset['asset_class']
                 input_refs.append(asset_class.ref_by_guid(guid=asset['guid']))
-            
+
             output_refs = []
             for asset in outputs:
                 asset_class = asset['asset_class']
                 output_refs.append(asset_class.ref_by_guid(guid=asset['guid']))
-            
+
             process = Process.creator(
                 name=process_name,
                 connection_qualified_name=connection_qn,
@@ -665,16 +747,16 @@ class InteractiveLineageCreator:
                 inputs=input_refs,
                 outputs=output_refs,
             )
-            
+
             if sql_query:
                 process.sql = sql_query
-            
+
             if source_url:
                 process.source_url = source_url
-            
+
             logger.info(" Creating lineage process...")
             response = self.client.asset.save(process)
-            
+
             if response:
                 created_processes = response.assets_created(Process) or []
                 updated_processes = response.assets_updated(Process) or []
@@ -698,7 +780,7 @@ class InteractiveLineageCreator:
             except Exception:
                 pass
             return False
-                
+
         except Exception as e:
             logger.error(f"❌ Failed to create lineage: {e}")
             return False
